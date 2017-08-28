@@ -51,6 +51,15 @@ static bool rt2800usb_hwcrypt_disabled(struct rt2x00_dev *rt2x00dev)
 	return modparam_nohwcrypt;
 }
 
+static int modparam_txpower;
+module_param_named(txpower, modparam_txpower, int, S_IRUGO);
+MODULE_PARM_DESC(txpower, "TX power. Default 0, min=-5, max=5 (dB)");
+
+static int rt2800usb_txpower(struct rt2x00_dev *rt2x00dev)
+{
+    return modparam_txpower;
+}
+
 /*
  * Queue handlers.
  */
@@ -441,6 +450,7 @@ static int rt2800usb_set_device_state(struct rt2x00_dev *rt2x00dev,
 /*
  * Watchdog handlers
  */
+/*
 static void rt2800usb_watchdog(struct rt2x00_dev *rt2x00dev)
 {
 	unsigned int i;
@@ -478,6 +488,7 @@ static void rt2800usb_watchdog(struct rt2x00_dev *rt2x00dev)
 
 	rt2x00usb_watchdog(rt2x00dev);
 }
+*/
 
 /*
  * TX descriptor initialization
@@ -860,6 +871,7 @@ static const struct rt2800_ops rt2800usb_rt2800_ops = {
 	.regbusy_read		= rt2x00usb_regbusy_read,
 	.read_eeprom		= rt2800usb_read_eeprom,
 	.hwcrypt_disabled	= rt2800usb_hwcrypt_disabled,
+	.txpower		= rt2800usb_txpower,
 	.drv_write_firmware	= rt2800usb_write_firmware,
 	.drv_init_registers	= rt2800usb_init_registers,
 	.drv_get_txwi		= rt2800usb_get_txwi,
@@ -880,7 +892,7 @@ static const struct rt2x00lib_ops rt2800usb_rt2x00_ops = {
 	.link_tuner		= rt2800_link_tuner,
 	.gain_calibration	= rt2800_gain_calibration,
 	.vco_calibration	= rt2800_vco_calibration,
-	.watchdog		= rt2800usb_watchdog,
+//	.watchdog		= rt2800usb_watchdog,
 	.start_queue		= rt2800usb_start_queue,
 	.kick_queue		= rt2x00usb_kick_queue,
 	.stop_queue		= rt2800usb_stop_queue,
