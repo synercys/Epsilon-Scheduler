@@ -218,8 +218,13 @@ static inline bool dl_entity_is_special(struct sched_dl_entity *dl_se)
 static inline bool
 dl_entity_preempt(struct sched_dl_entity *a, struct sched_dl_entity *b)
 {
+#ifdef DL_MODE_DLRM
+	return dl_entity_is_special(a) ||
+	       dlrm_period_smaller(a->dl_period, b->dl_period);
+#else
 	return dl_entity_is_special(a) ||
 	       dl_time_before(a->deadline, b->deadline);
+#endif
 }
 
 /*

@@ -355,6 +355,11 @@ void init_dl_bw(struct dl_bw *dl_b)
 
 void init_dl_rq(struct dl_rq *dl_rq)
 {
+
+#ifdef DL_MODE_DLRM
+	printk(KERN_INFO "Use DLRM mode.");
+#endif
+
 	dl_rq->root = RB_ROOT_CACHED;
 
 #ifdef CONFIG_SMP
@@ -1412,9 +1417,13 @@ static void __enqueue_dl_entity(struct sched_dl_entity *dl_se)
 	while (*link) {
 		parent = *link;
 		entry = rb_entry(parent, struct sched_dl_entity, rb_node);
-		if (dl_time_before(dl_se->deadline, entry->deadline))
+#ifdef DL_MODE_DLRM
+		if (dlrm_period_smaller(dl-se->dl_period, entry->dl_period)) {
+#else
+		if (dl_time_before(dl_se->deadline, entry->deadline)) {
+#endif
 			link = &parent->rb_left;
-		else {
+		} else {
 			link = &parent->rb_right;
 			leftmost = 0;
 		}

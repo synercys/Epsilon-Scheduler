@@ -7,6 +7,7 @@
  */
 
 #define MAX_DL_PRIO		0
+#define DL_MODE_RMDL
 
 static inline int dl_prio(int prio)
 {
@@ -23,4 +24,9 @@ static inline int dl_task(struct task_struct *p)
 static inline bool dl_time_before(u64 a, u64 b)
 {
 	return (s64)(a - b) < 0;
+}
+
+static inline bool dlrm_period_smaller(u64 a, u64 b)
+{
+	return a < b;
 }
