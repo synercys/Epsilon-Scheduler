@@ -184,6 +184,10 @@ dtbo-$(CONFIG_ARCH_BCM2835) += \
 	w1-gpio-pullup.dtbo \
 	wittypi.dtbo
 
+dtbo-$(CONFIG_ARCH_BCM2835) += spi0-4cs.dtbo
+dtbo-$(CONFIG_ARCH_BCM2835) += navio-rgb.dtbo
+dtbo-$(CONFIG_ARCH_BCM2835) += rcio.dtbo
+
 targets += dtbs dtbs_install
 targets += $(dtbo-y)
 
