@@ -7,7 +7,7 @@
  */
 
 #define MAX_DL_PRIO		0
-#define DL_MODE_RMDL
+#define DL_MODE_DLRM		// enable RM scheudling mode in SCHED_DEADLINE
 
 static inline int dl_prio(int prio)
 {

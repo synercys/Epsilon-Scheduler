@@ -356,6 +356,7 @@ void init_dl_bw(struct dl_bw *dl_b)
 void init_dl_rq(struct dl_rq *dl_rq)
 {
 
+	printk(KERN_INFO "cyhi.");
 #ifdef DL_MODE_DLRM
 	printk(KERN_INFO "Use DLRM mode.");
 #endif
@@ -1418,7 +1419,7 @@ static void __enqueue_dl_entity(struct sched_dl_entity *dl_se)
 		parent = *link;
 		entry = rb_entry(parent, struct sched_dl_entity, rb_node);
 #ifdef DL_MODE_DLRM
-		if (dlrm_period_smaller(dl-se->dl_period, entry->dl_period)) {
+		if (dlrm_period_smaller(dl_se->dl_period, entry->dl_period)) {
 #else
 		if (dl_time_before(dl_se->deadline, entry->deadline)) {
 #endif
