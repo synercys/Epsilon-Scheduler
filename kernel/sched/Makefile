@@ -29,3 +29,7 @@ obj-$(CONFIG_CPU_FREQ) += cpufreq.o
 obj-$(CONFIG_CPU_FREQ_GOV_SCHEDUTIL) += cpufreq_schedutil.o
 obj-$(CONFIG_MEMBARRIER) += membarrier.o
 obj-$(CONFIG_CPU_ISOLATION) += isolation.o
+
+# for GDB Debugging
+CFLAGS_REMOVE_deadline.o := -O2
+CFLAGS_deadline.o := -O0
