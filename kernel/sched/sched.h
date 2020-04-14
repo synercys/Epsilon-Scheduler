@@ -74,6 +74,8 @@
 #include "cpupri.h"
 #include "cpudeadline.h"
 
+#define DEBUG_DL	// enable code blocks for debugging SCHED_DEADLINE
+
 #ifdef CONFIG_SCHED_DEBUG
 # define SCHED_WARN_ON(x)	WARN_ONCE(x, #x)
 #else
@@ -218,13 +220,13 @@ static inline bool dl_entity_is_special(struct sched_dl_entity *dl_se)
 static inline bool
 dl_entity_preempt(struct sched_dl_entity *a, struct sched_dl_entity *b)
 {
-#ifdef DL_MODE_DLRM
-	return dl_entity_is_special(a) ||
-	       dlrm_period_smaller(a->dl_period, b->dl_period);
-#else
-	return dl_entity_is_special(a) ||
-	       dl_time_before(a->deadline, b->deadline);
-#endif
+	if (sysctl_sched_dl_mode == SCHED_DLMODE_RM) {
+		return dl_entity_is_special(a) ||
+		       dl_period_smaller(a->dl_period, b->dl_period);
+	} else { // SCHED_DLMODE_DL
+		return dl_entity_is_special(a) ||
+		       dl_time_before(a->deadline, b->deadline);
+	}
 }
 
 /*

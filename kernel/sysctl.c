@@ -447,6 +447,34 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= sched_rr_handler,
 	},
+	{
+		.procname	= "sched_dl_mode",
+		.data		= &sysctl_sched_dl_mode,
+		.maxlen		= sizeof(enum sched_dl_mode),
+		.mode		= 0644,
+		.proc_handler	= sched_dl_handler,
+	},
+	{
+		.procname	= "sched_dl_rad_idle_enabled",
+		.data		= &sysctl_sched_dl_rad_idle_enabled,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sched_dl_handler,
+	},
+	{
+		.procname	= "sched_dl_rad_fg_enabled",
+		.data		= &sysctl_sched_dl_rad_fg_enabled,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sched_dl_handler,
+	},
+	{
+		.procname	= "sched_dl_rad_utr_enabled",
+		.data		= &sysctl_sched_dl_rad_utr_enabled,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sched_dl_handler,
+	},
 #ifdef CONFIG_SCHED_AUTOGROUP
 	{
 		.procname	= "sched_autogroup_enabled",

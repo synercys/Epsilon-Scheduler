@@ -56,6 +56,23 @@ int sched_proc_update_handler(struct ctl_table *table, int write,
 extern unsigned int sysctl_sched_rt_period;
 extern int sysctl_sched_rt_runtime;
 
+// SCHED_DEADLINE mode
+enum sched_dl_mode {
+	SCHED_DLMODE_DL,	// Original SCHED_DEADLINE
+	SCHED_DLMODE_RM,	// DLRM mode, RM scheduling based on SCHED_DEADLINE
+};
+extern enum sched_dl_mode sysctl_sched_dl_mode;
+
+// SCHED_DEADLINE randomization configurations
+extern int sysctl_sched_dl_rad_idle_enabled;	// idle time as a task
+extern int sysctl_sched_dl_rad_fg_enabled;	// fine-grained scheduling
+extern int sysctl_sched_dl_rad_utr_enabled;	// unused time reclamation
+
+extern int sched_dl_handler(struct ctl_table *table, int write,
+		void __user *buffer, size_t *lenp,
+		loff_t *ppos);
+
+
 #ifdef CONFIG_CFS_BANDWIDTH
 extern unsigned int sysctl_sched_cfs_bandwidth_slice;
 #endif

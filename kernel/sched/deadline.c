@@ -18,6 +18,16 @@
 #include "sched.h"
 #include "pelt.h"
 
+
+// scheduling mode
+enum sched_dl_mode sysctl_sched_dl_mode = SCHED_DLMODE_DL;
+
+// randomization algorithm configurations
+int sysctl_sched_dl_rad_idle_enabled = 0;    // idle time as a task
+int sysctl_sched_dl_rad_fg_enabled = 0;      // fine-grained scheduling
+int sysctl_sched_dl_rad_utr_enabled = 0;     // unused time reclamation
+
+
 struct dl_bandwidth def_dl_bandwidth;
 
 static inline struct task_struct *dl_task_of(struct sched_dl_entity *dl_se)
@@ -356,9 +366,13 @@ void init_dl_bw(struct dl_bw *dl_b)
 void init_dl_rq(struct dl_rq *dl_rq)
 {
 
-#ifdef DL_MODE_DLRM
- 	printk(KERN_INFO "Use DLRM mode.");
-#endif
+	if (sysctl_sched_dl_mode == SCHED_DLMODE_DL) {
+	 	printk(KERN_INFO "DL: Use DL scheduling mode.");
+	} else if (sysctl_sched_dl_mode == SCHED_DLMODE_RM) {
+	 	printk(KERN_INFO "DL: Use RM scheduling mode.");
+	} else {
+	 	printk(KERN_ERR "DL: Unknown scheduling mode.");
+	}
 
 	dl_rq->root = RB_ROOT_CACHED;
 
@@ -1385,11 +1399,11 @@ static void __enqueue_dl_entity(struct sched_dl_entity *dl_se)
 		parent = *link;
 		entry = rb_entry(parent, struct sched_dl_entity, rb_node);
 		
-#ifdef DL_MODE_DLRM
-		if (dlrm_period_smaller(dl_se->dl_period, entry->dl_period)) {
-#else
-		if (dl_time_before(dl_se->deadline, entry->deadline)) {
-#endif
+		// traverse depending on the scheduling mode (RM: by period; DL: by deadline)
+		if ( ((sysctl_sched_dl_mode==SCHED_DLMODE_RM) && 
+		     dl_period_smaller(dl_se->dl_period, entry->dl_period)) ||
+		     ((sysctl_sched_dl_mode==SCHED_DLMODE_DL) &&
+		     dl_time_before(dl_se->deadline, entry->deadline)) ) {
 			link = &parent->rb_left;
 		} else {
 			link = &parent->rb_right;
@@ -1707,10 +1721,20 @@ static void start_hrtick_dl(struct rq *rq, struct task_struct *p)
 static struct sched_dl_entity *pick_next_dl_entity(struct rq *rq,
 						   struct dl_rq *dl_rq)
 {
-	struct rb_node *left = rb_first_cached(&dl_rq->root);
+	struct rb_node *left = rb_first_cached(&dl_rq->root), *rb_node_next;
+	struct sched_dl_entity *left_dl_entity, *next_dl_entity;
 
 	if (!left)
 		return NULL;
+
+#ifdef DEBUG_DL
+	rb_node_next = rb_next(left);
+	if (rb_node_next) {
+		left_dl_entity = rb_entry(left, struct sched_dl_entity, rb_node);
+		next_dl_entity = rb_entry(rb_node_next, struct sched_dl_entity, rb_node);
+		printk(KERN_INFO "DL: Pick [%d] over [%d].", dl_task_of(left_dl_entity)->pid, dl_task_of(next_dl_entity)->pid);
+	}
+#endif
 
 	return rb_entry(left, struct sched_dl_entity, rb_node);
 }
@@ -2764,3 +2788,25 @@ void print_dl_stats(struct seq_file *m, int cpu)
 	print_dl_rq(m, cpu, &cpu_rq(cpu)->dl);
 }
 #endif /* CONFIG_SCHED_DEBUG */
+
+/* A callback function for handling updates coming from sysctl. */
+int sched_dl_handler(struct ctl_table *table, int write,
+		void __user *buffer, size_t *lenp,
+		loff_t *ppos)
+{
+	int ret;
+	ret = proc_dointvec(table, write, buffer, lenp, ppos);
+
+	if (!ret) {
+		printk(KERN_INFO "DL: Parameters updated:");
+		printk(KERN_INFO "| sched_dl_mode = %d", sysctl_sched_dl_mode);
+		printk(KERN_INFO "| sched_dl_rad_idle_enabled = %d", sysctl_sched_dl_rad_idle_enabled);
+		printk(KERN_INFO "| sched_dl_rad_fg_enabled = %d", sysctl_sched_dl_rad_fg_enabled);
+		printk(KERN_INFO "| sched_dl_rad_utr_enabled = %d", sysctl_sched_dl_rad_utr_enabled);
+	} else {
+		printk(KERN_INFO "DL: Parameter update failed.");
+	}
+
+	return ret;
+}
+

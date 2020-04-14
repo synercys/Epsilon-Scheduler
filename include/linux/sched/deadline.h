@@ -7,7 +7,6 @@
  */
 
 #define MAX_DL_PRIO		0
-#define DL_MODE_DLRM
 
 static inline int dl_prio(int prio)
 {
@@ -26,7 +25,7 @@ static inline bool dl_time_before(u64 a, u64 b)
 	return (s64)(a - b) < 0;
 }
 
-static inline bool dlrm_period_smaller(u64 a, u64 b)
+static inline bool dl_period_smaller(u64 a, u64 b)
 {
 	return a < b;
 }
