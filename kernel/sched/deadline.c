@@ -16,6 +16,7 @@
  *                    Fabio Checconi <fchecconi@gmail.com>
  */
 #include "sched.h"
+#include "deadline_rad.h"
 #include "pelt.h"
 
 
@@ -23,9 +24,10 @@
 enum sched_dl_mode sysctl_sched_dl_mode = SCHED_DLMODE_DL;
 
 // randomization algorithm configurations
-int sysctl_sched_dl_rad_idle_enabled = 0;    // idle time as a task
-int sysctl_sched_dl_rad_fg_enabled = 0;      // fine-grained scheduling
-int sysctl_sched_dl_rad_utr_enabled = 0;     // unused time reclamation
+int sysctl_sched_dl_rad_enabled = 0;		// base randomization	   
+int sysctl_sched_dl_rad_idle_enabled = 0;	// idle time as a task
+int sysctl_sched_dl_rad_fg_enabled = 0;		// fine-grained scheduling
+int sysctl_sched_dl_rad_utr_enabled = 0;	// unused time reclamation
 
 
 struct dl_bandwidth def_dl_bandwidth;
@@ -373,6 +375,10 @@ void init_dl_rq(struct dl_rq *dl_rq)
 	} else {
 	 	printk(KERN_ERR "DL: Unknown scheduling mode.");
 	}
+	
+	dl_rq->dl_rad_taskset.task_count = 0;
+	init_dl_rad_pi_timer(&dl_rq->dl_rad_pi_timer);
+	dl_rq->dl_rad_idle_time_acting = false;	
 
 	dl_rq->root = RB_ROOT_CACHED;
 
@@ -661,6 +667,9 @@ static inline void setup_new_dl_entity(struct sched_dl_entity *dl_se)
 	 */
 	dl_se->deadline = rq_clock(rq) + dl_se->dl_deadline;
 	dl_se->runtime = dl_se->dl_runtime;
+	
+	/* For randomization protocol */
+	dl_se->rib = dl_se->wcib;
 }
 
 /*
@@ -710,6 +719,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 	while (dl_se->runtime <= 0) {
 		dl_se->deadline += pi_se->dl_period;
 		dl_se->runtime += pi_se->dl_runtime;
+		dl_se->rib = pi_se->wcib;
 	}
 
 	/*
@@ -725,6 +735,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 		printk_deferred_once("sched: DL replenish lagged too much\n");
 		dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
 		dl_se->runtime = pi_se->dl_runtime;
+		dl_se->rib = pi_se->wcib;
 	}
 
 	if (dl_se->dl_yielded)
@@ -885,6 +896,7 @@ static void update_dl_entity(struct sched_dl_entity *dl_se,
 
 		dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
 		dl_se->runtime = pi_se->dl_runtime;
+		dl_se->rib = pi_se->wcib;
 	}
 }
 
@@ -969,8 +981,10 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	struct task_struct *p = dl_task_of(dl_se);
 	struct rq_flags rf;
 	struct rq *rq;
+	struct dl_rq *dl_rq;
 
 	rq = task_rq_lock(p, &rf);
+	dl_rq = &rq->dl;
 
 	/*
 	 * The task might have changed its scheduling policy to something
@@ -1034,11 +1048,27 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	}
 #endif
 
+	/* The fact that this timer is up indicates an arrival of a new task. */
+	if (sysctl_sched_dl_rad_enabled && sysctl_sched_dl_rad_idle_enabled) {
+		if (dl_rq->dl_rad_idle_time_acting == true) {
+			cancel_dl_rad_pi_timer(&dl_rq->dl_rad_pi_timer);
+			update_rib_after_pi_idle_time(dl_rq);
+		}
+	}
+
 	enqueue_task_dl(rq, p, ENQUEUE_REPLENISH);
-	if (dl_task(rq->curr))
-		check_preempt_curr_dl(rq, p, 0);
-	else
+
+	if (sysctl_sched_dl_rad_enabled) {
+		/* If randomization is enabled, we want to reschedule
+		 * whenever a new job arrives
+		 */
 		resched_curr(rq);
+	} else {
+		if (dl_task(rq->curr))
+			check_preempt_curr_dl(rq, p, 0);
+		else
+			resched_curr(rq);
+	}
 
 #ifdef CONFIG_SMP
 	/*
@@ -1166,9 +1196,18 @@ static void update_curr_dl(struct rq *rq)
 {
 	struct task_struct *curr = rq->curr;
 	struct sched_dl_entity *dl_se = &curr->dl;
+	struct dl_rq *dl_rq = &rq->dl;
 	u64 delta_exec, scaled_delta_exec;
 	int cpu = cpu_of(rq);
 	u64 now;
+	int i, need_reschedule = 0;
+	struct dl_rad_taskset *dl_rad_taskset = &rq->dl.dl_rad_taskset;
+
+	// No need to update a thing if we are in randomization's idle time.
+	if (sysctl_sched_dl_rad_enabled && sysctl_sched_dl_rad_idle_enabled) {
+		if (dl_rq->dl_rad_idle_time_acting == true)
+			return;
+	}
 
 	if (!dl_task(curr) || !on_dl_rq(dl_se))
 		return;
@@ -1222,6 +1261,40 @@ static void update_curr_dl(struct rq *rq)
 
 	dl_se->runtime -= scaled_delta_exec;
 
+
+	/* DLRAD: update the remaining inversion budget (RIB) for each of higher/lower priority tasks */
+	if (sysctl_sched_dl_rad_enabled) {
+		// TODO: Separate for EDF and RM
+		for (i=0; i<dl_rad_taskset->task_count; i++) {
+			if (dl_rad_taskset->tasks[i] == curr)
+				continue;
+			if (dl_rad_taskset->tasks[i]->dl.deadline <= dl_se->deadline) {
+				/* Higher priority tasks (closer deadlines) */
+				/* Only decrease a job's rib if it is not a newly arrived job. 
+				 * A new job is always arrived before this update_curr_dl() is called,
+				 * so it is necessary to exclude such new jobs.
+				 */
+				if ((dl_rad_taskset->tasks[i]->dl.deadline-dl_rad_taskset->tasks[i]->dl.dl_period) <= (rq_clock_task(rq)-delta_exec)) {		
+					dl_rad_taskset->tasks[i]->dl.rib -= delta_exec;
+					if (dl_rad_taskset->tasks[i]->dl.rib <= 0) {
+						need_reschedule++;
+						//printk("DLRAD: Task[%d]'s RIB became negative when running Task-%d.", i, curr->pid);
+					}
+				}
+			} else {
+				/* Lower priority tasks */
+				if (sysctl_sched_dl_rad_utr_enabled) {
+					if (dl_se->dl_yielded && (dl_se->runtime>0)) {
+						/* This is the end of this job instance and there is unused runtime. */
+						// Pass the unused time to lower priority tasks as their inversion budgets.
+						dl_rad_taskset->tasks[i]->dl.rib += dl_se->runtime;
+					}
+				}
+			}
+		}
+
+	}
+
 throttle:
 	if (dl_runtime_exceeded(dl_se) || dl_se->dl_yielded) {
 		dl_se->dl_throttled = 1;
@@ -1237,6 +1310,11 @@ throttle:
 
 		if (!is_leftmost(curr, &rq->dl))
 			resched_curr(rq);
+	}
+
+	/* DLRAD: Some tasks' RIBs reach 0. */
+	if (need_reschedule > 0) {
+		resched_curr(rq);
 	}
 
 	/*
@@ -1746,7 +1824,23 @@ pick_next_task_dl(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 	struct task_struct *p;
 	struct dl_rq *dl_rq;
 
+	// DLRAD: for benchmark
+	struct timespec ts_start, ts_end;
+
 	dl_rq = &rq->dl;
+
+	
+	if (sysctl_sched_dl_rad_enabled) {
+		/* DLRAD: If the scheduled idle time is still active, then don't do scheduling. */
+		if (sysctl_sched_dl_rad_idle_enabled && dl_rq->dl_rad_idle_time_acting)
+			return NULL;
+
+		/* DLRAD: to this point we are sure the tasks will be rescheduled, so 
+		 * stop previously started dl_rad_pi_timer if any. 
+		 */
+		cancel_dl_rad_pi_timer(&dl_rq->dl_rad_pi_timer);
+	}
+
 
 	if (need_pull_dl_task(rq, prev)) {
 		/*
@@ -1777,26 +1871,70 @@ pick_next_task_dl(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 	if (unlikely(!dl_rq->dl_nr_running))
 		return NULL;
 
-	put_prev_task(rq, prev);
 
-	dl_se = pick_next_dl_entity(rq, dl_rq);
-	BUG_ON(!dl_se);
+	if (sysctl_sched_dl_rad_enabled) {
+		getnstimeofday(&ts_start);
+		//dl_se = pick_next_dl_entity(rq, dl_rq);
+		dl_se = pick_rad_next_dl_entity(rq, dl_rq);	// DLRAD: task picking function.
+		getnstimeofday(&ts_end);
 
-	p = dl_task_of(dl_se);
-	p->se.exec_start = rq_clock_task(rq);
+		//BUG_ON(!dl_se);	// This is no longer a bug if REORDER idle time scheduling is enabled.
 
-	/* Running task will never be pushed. */
-       dequeue_pushable_dl_task(rq, p);
+		if (dl_se == NULL) {
+			/* idle task is picked. */
 
-	if (hrtick_enabled(rq))
-		start_hrtick_dl(rq, p);
+			printk("DLRAD: idle task picked, rad(idle) overhead = %ld +ns. %ld", (ts_end.tv_sec - ts_start.tv_sec), (ts_end.tv_nsec - ts_start.tv_nsec));
+			return NULL;
+		} else {
+			/* Non-idle task is picked. */
 
-	deadline_queue_push_tasks(rq);
+			put_prev_task(rq, prev);
 
-	if (rq->curr->sched_class != &dl_sched_class)
-		update_dl_rq_load_avg(rq_clock_task(rq), rq, 0);
+			p = dl_task_of(dl_se);
+			p->se.exec_start = rq_clock_task(rq);
 
-	return p;
+			/* DLRAD: Benchmark message output. */
+			if (&dl_se->rb_node == dl_rq->root.rb_leftmost) {
+				printk("DLRAD: pid[%d] picked, rad(leftmost) overhead = %ld +ns. %ld", p->pid, (ts_end.tv_sec - ts_start.tv_sec), (ts_end.tv_nsec - ts_start.tv_nsec));
+			} else {
+				printk("DLRAD: pid[%d] picked, rad(rad) overhead = %ld +ns. %ld", p->pid, (ts_end.tv_sec - ts_start.tv_sec), (ts_end.tv_nsec - ts_start.tv_nsec));
+			}
+
+			/* Running task will never be pushed. */
+		       dequeue_pushable_dl_task(rq, p);
+
+			if (hrtick_enabled(rq))
+				start_hrtick_dl(rq, p);
+
+			deadline_queue_push_tasks(rq);
+
+			if (rq->curr->sched_class != &dl_sched_class)
+				update_dl_rq_load_avg(rq_clock_task(rq), rq, 0);
+
+			return p;
+		}
+	} else {
+		put_prev_task(rq, prev);
+
+		dl_se = pick_next_dl_entity(rq, dl_rq);
+		BUG_ON(!dl_se);
+
+		p = dl_task_of(dl_se);
+		p->se.exec_start = rq_clock_task(rq);
+
+		/* Running task will never be pushed. */
+	       dequeue_pushable_dl_task(rq, p);
+
+		if (hrtick_enabled(rq))
+			start_hrtick_dl(rq, p);
+
+		deadline_queue_push_tasks(rq);
+
+		if (rq->curr->sched_class != &dl_sched_class)
+			update_dl_rq_load_avg(rq_clock_task(rq), rq, 0);
+
+		return p;
+	}
 }
 
 static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
@@ -2800,6 +2938,7 @@ int sched_dl_handler(struct ctl_table *table, int write,
 	if (!ret) {
 		printk(KERN_INFO "DL: Parameters updated:");
 		printk(KERN_INFO "| sched_dl_mode = %d", sysctl_sched_dl_mode);
+		printk(KERN_INFO "| sched_dl_rad_enabled = %d", sysctl_sched_dl_rad_enabled);
 		printk(KERN_INFO "| sched_dl_rad_idle_enabled = %d", sysctl_sched_dl_rad_idle_enabled);
 		printk(KERN_INFO "| sched_dl_rad_fg_enabled = %d", sysctl_sched_dl_rad_fg_enabled);
 		printk(KERN_INFO "| sched_dl_rad_utr_enabled = %d", sysctl_sched_dl_rad_utr_enabled);

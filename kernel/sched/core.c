@@ -6,6 +6,7 @@
  *  Copyright (C) 1991-2002  Linus Torvalds
  */
 #include "sched.h"
+#include "deadline_rad.h"
 
 #include <linux/nospec.h>
 
@@ -2785,6 +2786,15 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 		if (prev->sched_class->task_dead)
 			prev->sched_class->task_dead(prev);
 
+		if (prev->sched_class == &dl_sched_class) {
+			/* Remove the dead task from dl_rad_taskset */
+			remove_dl_rad_task_pointer(prev);
+			// printk("DLRAD: pid[%d] is dead.", prev->pid);
+			
+			/* Now let's update reorder's task-specific variables. */
+			update_taskset_wcib(&rq->dl.dl_rad_taskset);
+		}
+
 		put_task_struct(prev);
 	}
 
@@ -4196,6 +4206,8 @@ static void __setscheduler_params(struct task_struct *p,
 static void __setscheduler(struct rq *rq, struct task_struct *p,
 			   const struct sched_attr *attr, bool keep_boost)
 {
+	struct dl_rad_taskset *taskset = &rq->dl.dl_rad_taskset;
+
 	__setscheduler_params(p, attr);
 
 	/*
@@ -4206,12 +4218,20 @@ static void __setscheduler(struct rq *rq, struct task_struct *p,
 	if (keep_boost)
 		p->prio = rt_effective_prio(p, p->prio);
 
-	if (dl_prio(p->prio))
+	if (dl_prio(p->prio)) {
 		p->sched_class = &dl_sched_class;
-	else if (rt_prio(p->prio))
+
+		/* Track the task for the randomization protocol */
+		taskset->tasks[taskset->task_count] = p;
+		taskset->task_count++;
+		update_taskset_wcib(taskset);
+
+	} else if (rt_prio(p->prio))
 		p->sched_class = &rt_sched_class;
 	else
 		p->sched_class = &fair_sched_class;
+
+	
 }
 
 /*

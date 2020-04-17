@@ -455,6 +455,13 @@ static struct ctl_table kern_table[] = {
 		.proc_handler	= sched_dl_handler,
 	},
 	{
+		.procname	= "sched_dl_rad_enabled",
+		.data		= &sysctl_sched_dl_rad_enabled,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sched_dl_handler,
+	},
+	{
 		.procname	= "sched_dl_rad_idle_enabled",
 		.data		= &sysctl_sched_dl_rad_idle_enabled,
 		.maxlen		= sizeof(int),

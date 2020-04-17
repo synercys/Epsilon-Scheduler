@@ -64,6 +64,7 @@ enum sched_dl_mode {
 extern enum sched_dl_mode sysctl_sched_dl_mode;
 
 // SCHED_DEADLINE randomization configurations
+extern int sysctl_sched_dl_rad_enabled;		// base randomization
 extern int sysctl_sched_dl_rad_idle_enabled;	// idle time as a task
 extern int sysctl_sched_dl_rad_fg_enabled;	// fine-grained scheduling
 extern int sysctl_sched_dl_rad_utr_enabled;	// unused time reclamation

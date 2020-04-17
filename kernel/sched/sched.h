@@ -627,10 +627,27 @@ static inline bool rt_rq_is_runnable(struct rt_rq *rt_rq)
 	return rt_rq->rt_queued && rt_rq->rt_nr_running;
 }
 
+/*
+ * Taskset pointers for randomization protocols
+ */
+struct dl_rad_taskset {
+	struct task_struct *tasks[30];
+	int task_count;
+	u64 r_cap; /* the maximum workload of the taskset */
+};
+
 /* Deadline class' related fields in a runqueue */
 struct dl_rq {
 	/* runqueue is an rbtree, ordered by deadline */
 	struct rb_root_cached	root;
+
+	/* dl_rad_taskset: dl task pointers for tracking wcib */
+	/* dl_rad_pi_timer: priority inversion timer */
+	/* dl_rad_idle_time_acting: idle time is being picked? */
+	struct dl_rad_taskset 	dl_rad_taskset;
+	struct hrtimer 		dl_rad_pi_timer;
+	u64 			dl_rad_pi_timer_start_time; 
+	bool 			dl_rad_idle_time_acting;
 
 	unsigned long		dl_nr_running;
 
