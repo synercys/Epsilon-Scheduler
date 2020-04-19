@@ -439,8 +439,8 @@ static int start_dl_rad_pi_timer(struct hrtimer *timer, s64 pi_time_budget) {
 	if (ktime_us_delta(act, now) < 0)
 		return 0;
 
-	if (hrtimer_is_queued(timer)) {
-		hrtimer_cancel(timer);
+	if (hrtimer_active(timer)) {
+		hrtimer_try_to_cancel(timer);
 	}
 
 	hrtimer_start(timer, act, HRTIMER_MODE_ABS);
@@ -484,8 +484,8 @@ void init_dl_rad_pi_timer(struct hrtimer *timer) {
 void cancel_dl_rad_pi_timer(struct hrtimer *timer) {
 	struct dl_rq *dl_rq = container_of(timer, struct dl_rq, dl_rad_pi_timer);
 
-	if (hrtimer_is_queued(timer)) {
-		hrtimer_cancel(timer);
+	if (hrtimer_active(timer)) {
+		hrtimer_try_to_cancel(timer);
 		//printk("DLRAD: pi_timer is canceled.");
 	}
 
