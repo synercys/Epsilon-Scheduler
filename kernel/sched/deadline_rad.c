@@ -149,10 +149,33 @@ static u64 calculate_edf_wcrt(struct dl_rad_taskset *taskset, int task_index) {
 }
 
 /*
- * Calculate the worst case response time (WCRT) of the given task under RM-FP scheduling.
+ * Calculate the upper-bound inteference that a job of \tau_j can experience due to
+ * the higher priority tasks during D_i in TaskShuffler algorithms (RM-rad scheduling).
+ * Equation: (TaskShuffler -- Eq.2)
+ * Ii = \sum_hp{ [ceil(Di/Tj) + 1] * Cj }
  */
-static u64 calculate_rm_wcrt(struct dl_rad_taskset *taskset, int task_index) {
-	return 0;
+static u64 calculate_rm_upper_interference(struct dl_rad_taskset *taskset, int task_index) {
+	int j;
+	u64 interference = 0, remainder;
+	u64 dl_deadline = taskset->tasks[task_index]->dl.dl_deadline;
+	u64 dl_period = taskset->tasks[task_index]->dl.dl_period;
+	u64 j_runtime, j_period;
+
+	for (j=0; j<taskset->task_count; j++) {
+		j_period = taskset->tasks[j]->dl.dl_period;
+		j_runtime = taskset->tasks[j]->dl.dl_runtime;		
+
+		/* Only account for those that have higher priorities */
+		if (j==task_index || dl_period<j_period)
+			continue;
+
+		/* [ceil(Di/Tj)+1]*Cj */
+		interference += (j_runtime * (div64_u64_rem(dl_deadline, j_period, &remainder)+1));
+		if (remainder > 0)
+			interference += j_runtime;
+	}
+
+	return interference;
 }
 
 /*
@@ -161,16 +184,46 @@ static u64 calculate_rm_wcrt(struct dl_rad_taskset *taskset, int task_index) {
  * case response time (WCRT).
  */
 static s64 calculate_wcib(struct dl_rad_taskset *taskset, int task_index) {
+	u64 dl_deadline = taskset->tasks[task_index]->dl.dl_deadline;
+	u64 dl_runtime = taskset->tasks[task_index]->dl.dl_runtime;
+
 	if (sysctl_sched_dl_mode == SCHED_DLMODE_DL) {
 		// for SCHED_DLMODE_DL
-		return taskset->tasks[task_index]->dl.dl_deadline - calculate_edf_wcrt(taskset, task_index);
+		return dl_deadline - calculate_edf_wcrt(taskset, task_index);
 	} else {
 		// for SCHED_DLMODE_RM
-		return taskset->tasks[task_index]->dl.dl_deadline - calculate_rm_wcrt(taskset, task_index);
+		// Vi = di - (ei + Ii)
+		return dl_deadline - (dl_runtime + calculate_rm_upper_interference(taskset, task_index));
 	}
 }
 
-void update_taskset_wcib(struct dl_rad_taskset *taskset) {
+/*
+ * Calculate the minimum inversion period of the given task.
+ * This is the same as computing the miminum inversion "priority". 
+ * Period is used here for better efficiency since we don't stroe
+ * priorities for RM (periods are used to determine priorities in RM).
+ */
+u64 calculate_mip(struct dl_rad_taskset *taskset, int task_index) {
+	int j;
+	u64 dl_period = taskset->tasks[task_index]->dl.dl_period;
+	u64 j_period;
+	s64 j_wcib;
+	u64 mip = (~(u64)0);	// initialized with the max value
+
+	for (j=0; j<taskset->task_count; j++) {
+		j_period = taskset->tasks[j]->dl.dl_period;
+		j_wcib = taskset->tasks[j]->dl.wcib;
+		if (j==task_index || dl_period>j_period)
+			continue;
+
+		if (j_wcib<0 && j_period<mip)
+			mip = j_period;
+	}
+
+	return mip;
+}
+
+void update_taskset_dl_rad_parameters(struct dl_rad_taskset *taskset) {
 	int i;
 
 	if (sysctl_sched_dl_mode == SCHED_DLMODE_DL) {
@@ -182,7 +235,17 @@ void update_taskset_wcib(struct dl_rad_taskset *taskset) {
 	/* Compute and update Vi (WCIB) for each task (while including the new task) */
 	for (i=0; i<taskset->task_count; i++) {
 		taskset->tasks[i]->dl.wcib = calculate_wcib(taskset, i);
-		printk("DLRAD: V_%d = %llu.", i, taskset->tasks[i]->dl.wcib);
+		printk("DLRAD: V_%d = %lld.", i, taskset->tasks[i]->dl.wcib);
+	}
+
+	/* Compute the minimum inversion priority of each task (for TaskShuffler)
+	 * This calculation has to be done when all V_i are computed.
+	 */
+	if (sysctl_sched_dl_mode == SCHED_DLMODE_RM) {
+		for (i=0; i<taskset->task_count; i++) {
+			taskset->tasks[i]->dl.mip = calculate_mip(taskset, i);
+			printk("DLRAD: M_%d = %llu.", i, taskset->tasks[i]->dl.mip);
+		}
 	}
 }
 
@@ -240,12 +303,13 @@ struct sched_dl_entity *pick_rad_next_dl_entity(struct rq *rq,
 	struct task_struct *rad_task;
 	struct dl_rad_taskset *taskset = &dl_rq->dl_rad_taskset;
 	struct sched_dl_entity *leftmost_dl_se = rb_entry(dl_rq->root.rb_leftmost, struct sched_dl_entity, rb_node);
-	u64 min_inversion_deadline = (~(u64)0);	// initialized with the max value
+	u64 min_inversion_deadline;
 	s64 min_inversion_budget = 0;
 	u64 scheduled_pi_timer_duration;
 	s64 rq_min_task_rib = 0;
 	int idle_time_scheduling_allowed = 1;
 	struct task_struct dummy_idle_task;
+	u64 true_min_inversion_period;
 
 
 	/* Step 1 */
@@ -254,7 +318,13 @@ struct sched_dl_entity *pick_rad_next_dl_entity(struct rq *rq,
 	if (leftmost_dl_se->rib <= 0)
 		return leftmost_dl_se;
 
-	/* Compute the minimum inversion deadline m^t_{HP} */
+
+	/* Compute the minimum inversion property (deadline m^t_{HP} for EDF, period for RM) */
+	if (sysctl_sched_dl_mode == SCHED_DLMODE_DL) {
+		min_inversion_deadline = (~(u64)0);	// initialized with the max value
+	} else { // SCHED_DLMODE_RM
+		true_min_inversion_period = leftmost_dl_se->mip;
+	}
 	rq_min_task_rib = leftmost_dl_se->rib;
 	for (j=0; j<taskset->task_count; j++) {
 		if (RB_EMPTY_NODE(&taskset->tasks[j]->dl.rb_node))
@@ -269,28 +339,40 @@ struct sched_dl_entity *pick_rad_next_dl_entity(struct rq *rq,
 		if (taskset->tasks[j]->dl.rib < rq_min_task_rib)
 			rq_min_task_rib = taskset->tasks[j]->dl.rib;
 
-		/* Comparison for the minimum inversion deadline */
-		if ( (taskset->tasks[j]->dl.deadline > leftmost_dl_se->deadline) && (taskset->tasks[j]->dl.rib < 0) ) 
-			min_inversion_deadline = (taskset->tasks[j]->dl.deadline<min_inversion_deadline)?taskset->tasks[j]->dl.deadline:min_inversion_deadline;
+		if (sysctl_sched_dl_mode == SCHED_DLMODE_DL) {
+			// for SCHED_DLMODE_DL
+			/* Comparison for the minimum inversion deadline */
+			if ( (taskset->tasks[j]->dl.deadline > leftmost_dl_se->deadline) && (taskset->tasks[j]->dl.rib < 0) ) 
+				min_inversion_deadline = (taskset->tasks[j]->dl.deadline<min_inversion_deadline)?taskset->tasks[j]->dl.deadline:min_inversion_deadline;
+		} else {
+			// for SCHED_DLMODE_RM
+			if (taskset->tasks[j]->dl.rib<=0 && taskset->tasks[j]->dl.dl_period<true_min_inversion_period)
+				true_min_inversion_period = taskset->tasks[j]->dl.dl_period;
+		}
 	}
 
 
 	/* Create a candidate list */
+	/* Note that leftmost_dl_se->rib is > 0 for sure if reaching this point. 
+	 * So there will be at least one candidate after this loop.
+	 */
 	for (j=0; j<taskset->task_count; j++) {
 		if (RB_EMPTY_NODE(&taskset->tasks[j]->dl.rb_node))
 			continue;	// This is not in dl_rq.
 
-		if (taskset->tasks[j]->dl.deadline <= min_inversion_deadline) {
+		if (((sysctl_sched_dl_mode==SCHED_DLMODE_DL) && (taskset->tasks[j]->dl.deadline <= min_inversion_deadline)) ||
+		    ((sysctl_sched_dl_mode==SCHED_DLMODE_RM) && (taskset->tasks[j]->dl.dl_period <= true_min_inversion_period))) {
 			rad_candidates[candidate_count] = taskset->tasks[j];
 			candidate_count++;
 		}
 	}
 
+
 	/* Note that at least the highest priority task will be in the candidate 
 	 * list at this moment. We place this check here to track the status.
 	 */
 	if (candidate_count == 0) {
-		printk(KERN_ERR "ERROR: redf: candidate list is empty.");
+		printk(KERN_ERR "ERROR: DLRAD: candidate list is empty.");
 		return leftmost_dl_se; 
 	}
 

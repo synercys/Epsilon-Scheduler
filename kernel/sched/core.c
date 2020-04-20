@@ -2792,7 +2792,7 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 			// printk("DLRAD: pid[%d] is dead.", prev->pid);
 			
 			/* Now let's update reorder's task-specific variables. */
-			update_taskset_wcib(&rq->dl.dl_rad_taskset);
+			update_taskset_dl_rad_parameters(&rq->dl.dl_rad_taskset);
 		}
 
 		put_task_struct(prev);
@@ -4224,7 +4224,7 @@ static void __setscheduler(struct rq *rq, struct task_struct *p,
 		/* Track the task for the randomization protocol */
 		taskset->tasks[taskset->task_count] = p;
 		taskset->task_count++;
-		update_taskset_wcib(taskset);
+		update_taskset_dl_rad_parameters(taskset);
 
 	} else if (rt_prio(p->prio))
 		p->sched_class = &rt_sched_class;

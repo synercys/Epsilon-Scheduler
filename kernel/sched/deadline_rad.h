@@ -4,7 +4,7 @@
 
 //#include "sched.h"
 
-void update_taskset_wcib(struct dl_rad_taskset *taskset);
+void update_taskset_dl_rad_parameters(struct dl_rad_taskset *taskset);
 void remove_dl_rad_task_pointer(struct task_struct *p);
 struct sched_dl_entity *pick_rad_next_dl_entity(struct rq *rq,
 						       struct dl_rq *dl_rq);

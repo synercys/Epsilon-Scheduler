@@ -577,9 +577,12 @@ struct sched_dl_entity {
 	 *
 	 * @rib remaining inversion budget (RIB). It is set to V_i
 	 * (WCIB of the task_i) everytime a new job is instantiated.
+	 *
+	 * @mip the minimum inversion period (as priority)
 	 */
 	s64 wcib;
 	s64 rib;
+	u64 mip;
 };
 
 union rcu_special {
