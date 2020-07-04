@@ -231,20 +231,21 @@ void update_taskset_dl_rad_parameters(struct dl_rad_taskset *taskset) {
 		printk("DLRAD: new r_cap value = %llu", taskset->r_cap);
 	}
 
-	printk("DLRAD: new V_i values:");
 	/* Compute and update Vi (WCIB) for each task (while including the new task) */
+	printk("DLRAD: new V_i values:");
 	for (i=0; i<taskset->task_count; i++) {
 		taskset->tasks[i]->dl.wcib = calculate_wcib(taskset, i);
-		printk("DLRAD: V_%d = %lld.", i, taskset->tasks[i]->dl.wcib);
+		printk("| V_%d = %lld.", i, taskset->tasks[i]->dl.wcib);
 	}
 
 	/* Compute the minimum inversion priority of each task (for TaskShuffler)
 	 * This calculation has to be done when all V_i are computed.
 	 */
+	printk("DLRAD: new M_i values:");
 	if (sysctl_sched_dl_mode == SCHED_DLMODE_RM) {
 		for (i=0; i<taskset->task_count; i++) {
 			taskset->tasks[i]->dl.mip = calculate_mip(taskset, i);
-			printk("DLRAD: M_%d = %llu.", i, taskset->tasks[i]->dl.mip);
+			printk("| M_%d = %llu.", i, taskset->tasks[i]->dl.mip);
 		}
 	}
 }
