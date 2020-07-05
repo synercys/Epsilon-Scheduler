@@ -17,4 +17,12 @@ enum hrtimer_restart dl_rad_pi_timer(struct hrtimer *timer);
 #define	DL_RAD_MIN_IDLE_TIME_DURATION	1000000	// 1ms
 #define	DL_RAD_OVERHEAD_UPPER_BOUND_NS	100000	// 100us
 
+// epsilon-Scheduler utility functions
+u64 get_laplace_inter_arrival_time(struct sched_dl_entity *dl_se);
+#define DL_LAPLACE_LOWER_PERIOD	10000000	// 10ms
+#define DL_LAPLACE_UPPER_PERIOD	200000000	// 200ms
+#define DL_LAPLACE_DEFAULT_EPSILON	100
+//#define DL_LAPLACE_J	50
+//#define DL_LAPLACE_SENS	190			// 200ms-10ms		
+
 #endif

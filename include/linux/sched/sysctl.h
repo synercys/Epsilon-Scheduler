@@ -60,6 +60,7 @@ extern int sysctl_sched_rt_runtime;
 enum sched_dl_mode {
 	SCHED_DLMODE_DL,	// Original SCHED_DEADLINE
 	SCHED_DLMODE_RM,	// DLRM mode, RM scheduling based on SCHED_DEADLINE
+	SCHED_DLMODE_LAPLACE,	// epislon-Scheduler with Laplace-based random inter-arrival times
 };
 extern enum sched_dl_mode sysctl_sched_dl_mode;
 

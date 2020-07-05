@@ -602,3 +602,50 @@ void update_rib_after_pi_idle_time(struct dl_rq *dl_rq) {
 	}
 	//printk("redf: %llu update rib after idle time.", rq_task_count);
 }
+
+
+// Hard-coded, flattened Laplace distribution 
+u64 flattened_laplace_distributions[4][10] = {
+	{0,0,0,0,0,0,0,0,0,0},
+	{0,0,0,0,0,0,0,0,0,0},
+	{0,0,0,0,0,0,0,0,0,0},
+	{0,0,0,0,0,0,0,0,0,0}
+};
+s64 get_laplace_distribution_sample(u64 epsilon) {
+	u64 rad_number;
+	u64 distribution_index;
+	u64 sample;
+
+	switch (epsilon) {
+		case 1:
+			distribution_index = 0;
+			break;
+		case 10:
+			distribution_index = 1;
+			break;
+		case 100:
+			distribution_index = 2;
+			break;
+		case 1000:
+		default:
+			distribution_index = 3;
+			break;
+	}
+
+	get_random_bytes(&rad_number, sizeof(rad_number));
+	sample = flattened_laplace_distributions[distribution_index][do_div(rad_number, sizeof(flattened_laplace_distributions[distribution_index]))];
+
+	if (rad_number & 0x1 == 1) 
+		return -(s64)sample;
+	else
+		return (s64)sample;
+}
+
+u64 get_laplace_inter_arrival_time(struct sched_dl_entity *dl_se) {
+	u64 randomized_inter_arrival_time;
+	do {
+		randomized_inter_arrival_time = dl_se->dl_period + get_laplace_distribution_sample(dl_se->epsilon);
+	} while( (randomized_inter_arrival_time<DL_LAPLACE_LOWER_PERIOD) || (randomized_inter_arrival_time>DL_LAPLACE_UPPER_PERIOD));
+	return randomized_inter_arrival_time;
+}
+

@@ -583,6 +583,9 @@ struct sched_dl_entity {
 	s64 wcib;
 	s64 rib;
 	u64 mip;
+
+	/* Laplace-Scheduler */
+	u64 epsilon;
 };
 
 union rcu_special {

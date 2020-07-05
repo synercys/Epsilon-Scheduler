@@ -717,7 +717,11 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 	 * arbitrary large.
 	 */
 	while (dl_se->runtime <= 0) {
-		dl_se->deadline += pi_se->dl_period;
+		if (sysctl_sched_dl_mode == SCHED_DLMODE_LAPLACE)
+			dl_se->deadline += get_laplace_inter_arrival_time(pi_se);
+		else
+			dl_se->deadline += pi_se->dl_period;
+
 		dl_se->runtime += pi_se->dl_runtime;
 		dl_se->rib = pi_se->wcib;
 	}
@@ -902,7 +906,10 @@ static void update_dl_entity(struct sched_dl_entity *dl_se,
 
 static inline u64 dl_next_period(struct sched_dl_entity *dl_se)
 {
-	return dl_se->deadline - dl_se->dl_deadline + dl_se->dl_period;
+	if (sysctl_sched_dl_mode==SCHED_DLMODE_LAPLACE)
+		return dl_se->deadline;
+	else
+		return dl_se->deadline - dl_se->dl_deadline + dl_se->dl_period;
 }
 
 /*
@@ -2756,6 +2763,10 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	dl_se->flags = attr->sched_flags;
 	dl_se->dl_bw = to_ratio(dl_se->dl_period, dl_se->dl_runtime);
 	dl_se->dl_density = to_ratio(dl_se->dl_deadline, dl_se->dl_runtime);
+
+	// Laplace-Scheduler specific parameter
+	dl_se->epsilon = DL_LAPLACE_DEFAULT_EPSILON;
+
 }
 
 void __getparam_dl(struct task_struct *p, struct sched_attr *attr)
