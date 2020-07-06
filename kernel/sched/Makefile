@@ -33,3 +33,5 @@ obj-$(CONFIG_CPU_ISOLATION) += isolation.o
 # for GDB Debugging
 CFLAGS_REMOVE_deadline.o := -O2
 CFLAGS_deadline.o := -O0
+CFLAGS_REMOVE_deadline_rad.o := -O2
+CFLAGS_deadline_rad.o := -O0
