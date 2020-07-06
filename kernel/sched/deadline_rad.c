@@ -616,7 +616,8 @@ u64 flattened_laplace_distributions[4][100] = {	// [4][100]
 s64 get_laplace_distribution_sample(u64 epsilon) {
 	u64 rad_number;
 	u64 distribution_index;
-	u64 sample;
+	u64 distribution_column_count;
+	s64 sample;
 
 	switch (epsilon) {
 		case 1:
@@ -635,13 +636,15 @@ s64 get_laplace_distribution_sample(u64 epsilon) {
 	}
 
 	get_random_bytes(&rad_number, sizeof(rad_number));
-	sample = flattened_laplace_distributions[distribution_index][do_div(rad_number, sizeof(flattened_laplace_distributions[distribution_index])/sizeof(flattened_laplace_distributions[distribution_index][0]))];
+	distribution_column_count = sizeof(flattened_laplace_distributions[distribution_index])/sizeof(flattened_laplace_distributions[distribution_index][0]);
+	rad_number = do_div(rad_number, 2*distribution_column_count);
+	if (rad_number >= distribution_column_count) {
+		sample = -flattened_laplace_distributions[distribution_index][rad_number-distribution_column_count];
+	} else {
+		sample = flattened_laplace_distributions[distribution_index][rad_number];
+	}	
 	sample *= 100000;	// convert 100us to ns
-
-	if ((rad_number&0x1) == 1) 
-		return -(s64)sample;
-	else
-		return (s64)sample;
+	return sample;
 }
 
 u64 get_laplace_inter_arrival_time(struct sched_dl_entity *dl_se) {
