@@ -959,7 +959,11 @@ static int brcm_msi_set_affinity(struct irq_data *irq_data,
 				 const struct cpumask *mask, bool force)
 {
 	struct brcm_msi *msi = irq_data_get_irq_chip_data(irq_data);
+#ifdef CONFIG_SMP
 	return __irq_set_affinity(msi->irq, mask, force);
+#else
+	return irq_set_affinity(msi->irq, mask);
+#endif /* CONFIG_SMP */
 }
 
 static struct irq_chip brcm_msi_bottom_irq_chip = {
