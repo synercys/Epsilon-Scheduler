@@ -29,6 +29,9 @@ int sysctl_sched_dl_rad_idle_enabled = 0;	// idle time as a task
 int sysctl_sched_dl_rad_fg_enabled = 0;		// fine-grained scheduling
 int sysctl_sched_dl_rad_utr_enabled = 0;	// unused time reclamation
 
+// epsilon value for SCHED_DLMODE_LAPLACE
+int sysctl_sched_dl_rad_epsilon = DL_LAPLACE_DEFAULT_EPSILON;		// epsilon
+
 
 struct dl_bandwidth def_dl_bandwidth;
 
@@ -372,6 +375,8 @@ void init_dl_rq(struct dl_rq *dl_rq)
 	 	printk(KERN_INFO "DL: Use DL scheduling mode.");
 	} else if (sysctl_sched_dl_mode == SCHED_DLMODE_RM) {
 	 	printk(KERN_INFO "DL: Use RM scheduling mode.");
+	} else if (sysctl_sched_dl_mode == SCHED_DLMODE_LAPLACE) {
+		printk(KERN_INFO "DL: Use Laplace (epsilon-scheduler) scheduling mode.");
 	} else {
 	 	printk(KERN_ERR "DL: Unknown scheduling mode.");
 	}
@@ -2765,7 +2770,7 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	dl_se->dl_density = to_ratio(dl_se->dl_deadline, dl_se->dl_runtime);
 
 	// Laplace-Scheduler specific parameter
-	dl_se->epsilon = DL_LAPLACE_DEFAULT_EPSILON;
+	dl_se->epsilon = (u64)sysctl_sched_dl_rad_epsilon;
 
 }
 
@@ -2946,6 +2951,16 @@ int sched_dl_handler(struct ctl_table *table, int write,
 	int ret;
 	ret = proc_dointvec(table, write, buffer, lenp, ppos);
 
+	// Current LAPLACE implementation only supports epsilon being 1, 10, 100, 1000
+	if (sysctl_sched_dl_rad_epsilon < 10)
+		sysctl_sched_dl_rad_epsilon = 1;
+	else if (sysctl_sched_dl_rad_epsilon < 100)
+		sysctl_sched_dl_rad_epsilon = 10;
+	else if (sysctl_sched_dl_rad_epsilon < 1000)
+		sysctl_sched_dl_rad_epsilon = 100;
+	else
+		sysctl_sched_dl_rad_epsilon = 1000;
+
 	if (!ret) {
 		printk(KERN_INFO "DL: Parameters updated:");
 		printk(KERN_INFO "| sched_dl_mode = %d", sysctl_sched_dl_mode);
@@ -2953,6 +2968,7 @@ int sched_dl_handler(struct ctl_table *table, int write,
 		printk(KERN_INFO "| sched_dl_rad_idle_enabled = %d", sysctl_sched_dl_rad_idle_enabled);
 		printk(KERN_INFO "| sched_dl_rad_fg_enabled = %d", sysctl_sched_dl_rad_fg_enabled);
 		printk(KERN_INFO "| sched_dl_rad_utr_enabled = %d", sysctl_sched_dl_rad_utr_enabled);
+		printk(KERN_INFO "| sched_dl_rad_epsilon = %d", sysctl_sched_dl_rad_epsilon);
 	} else {
 		printk(KERN_INFO "DL: Parameter update failed.");
 	}

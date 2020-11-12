@@ -70,6 +70,9 @@ extern int sysctl_sched_dl_rad_idle_enabled;	// idle time as a task
 extern int sysctl_sched_dl_rad_fg_enabled;	// fine-grained scheduling
 extern int sysctl_sched_dl_rad_utr_enabled;	// unused time reclamation
 
+// epsilon value for SCHED_DLMODE_LAPLACE
+extern int sysctl_sched_dl_rad_epsilon;		// epsilon
+
 extern int sched_dl_handler(struct ctl_table *table, int write,
 		void __user *buffer, size_t *lenp,
 		loff_t *ppos);

@@ -482,6 +482,13 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= sched_dl_handler,
 	},
+	{
+		.procname	= "sched_dl_rad_epsilon",
+		.data		= &sysctl_sched_dl_rad_epsilon,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sched_dl_handler,
+	},
 #ifdef CONFIG_SCHED_AUTOGROUP
 	{
 		.procname	= "sched_autogroup_enabled",
